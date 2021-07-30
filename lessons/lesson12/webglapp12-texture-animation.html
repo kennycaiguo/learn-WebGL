@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>gl-lesson12 Texture animation</title>
+    <!--
+        纹理相关，纹理坐标的不是形式是uv,纹理坐标介于0.0到1.0之间
+    -->
+    <script type="text/javascript" src="./glMatrix-0.9.6.js"></script>
+    <script id="shader-vs" type="x-shader/x-fragment">
+      attribute vec3 v3Position;
+      attribute vec2  inUV;
+      uniform   mat4  proj;
+      uniform   float anim;
+      varying   vec2  outUV;
+      void main(void)
+      {
+          
+          gl_Position=proj * vec4(v3Position.x-anim,v3Position.y,v3Position.z,1.0);
+          outUV=inUV;
+      }
+    </script>
+    <script id="shader-fs" type="x-shader/x-fragment">
+        precision mediump float;
+        uniform   sampler2D texture;
+        varying   vec2 outUV;
+        void main(void)
+     {
+          gl_FragColor=texture2D(texture,vec2(outUV.s,outUV.t));
+      }
+    </script>
+     
+    <script>
+        //DOM snippet：
+        /*
+            gid+tab键=》document.getElementById(“id”)
+            dqs+tab键=》document.querySelector(‘selector’);
+            dqa+tab键=》document.querySelectorAll(‘selector’);
+            dce+tab键=》document.createElement(‘element’);
+            Console helper: ctrl+l=console.log()
+        */
+        //注意：安装了wegbl提示插件，但是必须将上下文变量定义为gl才有用
+        /*
+          本课学习内容：1.游戏循环,2.动画效果3.投影矩阵
+        */
+        var gl=null;
+        var vertexShaberObject=null;
+        var fragmentShaderObject=null;
+        var programObject=null;
+        // var indexBuffer=null;
+        var triangleBuffer=null;
+        //矩形顶点缓存
+        // var rectangelBuffer=null;
+        var v3PositionIndex=0;
+        var uniformAnim=0;
+        var animStep=0;
+        var uniformProj=0;
+        var uniformTexture=0;
+        var textureHandle
+        var attrUV;
+
+        //矩阵变量
+        var projectMat=mat4.create();
+        function getShaderSorce(scriptID)
+        {
+           var shaderScript=document.getElementById(scriptID);
+           if(shaderScript==null){
+               return " ";
+           }
+
+           var sourceCode=" ";
+           var child=shaderScript.firstChild;
+           while(child){
+               if(child.nodeType==child.TEXT_NODE){
+                   sourceCode+=child.textContent;
+               }
+               child=child.nextSibling;
+           }
+           return sourceCode;
+        }
+        function handleLoadedTexture(texture){
+          gl.bindTexture(gl.TEXTURE_2D,texture);
+          gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,texture.image);
+          // gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
+          gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+          // gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);
+          gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+          //注意这里
+          // gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);
+          // gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT);
+          // gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.MIRRORED_REPEAT);
+          // gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.MIRRORED_REPEAT);
+          gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+          gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+
+          gl.bindTexture(gl.TEXTURE_2D,null);
+
+        }
+        function initTexture(imageFile){
+            textureHandle=gl.createTexture();
+            textureHandle.image=new Image();
+            textureHandle.image.src=imageFile;
+            textureHandle.image.onload=function(){
+              handleLoadedTexture(textureHandle)
+           }
+        }
+
+      //初始化函数，加载资源
+        function init(){
+            
+            var canvas=document.getElementById("myCanvas");
+            gl=canvas.getContext("webgl");
+            gl.viewport(0,0,canvas.clientWidth,canvas.clientHeight);
+             //构造投影矩阵
+            mat4.ortho(0,canvas.clientWidth,canvas.clientHeight,0,-1.0,1.0,projectMat);
+           // mat4.ortho(0,canvas.clientWidth,0,canvas.clientHeight,-1000.0,1000.0,projectMat);
+            vertexShaberObject=gl.createShader(gl.VERTEX_SHADER);
+            fragmentShaderObject=gl.createShader(gl.FRAGMENT_SHADER);
+            gl.shaderSource(vertexShaberObject,getShaderSorce("shader-vs"));
+            gl.shaderSource(fragmentShaderObject,getShaderSorce("shader-fs"));
+
+            gl.compileShader(vertexShaberObject);
+            gl.compileShader(fragmentShaderObject);
+
+            if(!gl.getShaderParameter(vertexShaberObject,gl.COMPILE_STATUS))
+            {
+                var res=gl.getShaderInfoLog(vertexShaberObject);
+                alert("error:vertexShaberObject:"+res);
+                return;
+            }
+            if(!gl.getShaderParameter(fragmentShaderObject,gl.COMPILE_STATUS))
+            {
+                var err=gl.getShaderInfoLog(fragmentShaderObject);
+                alert("error:fragmentShaderObject:"+err);
+                return;
+            }
+
+            programObject=gl.createProgram();
+            gl.attachShader(programObject,vertexShaberObject);
+            gl.attachShader(programObject,fragmentShaderObject);
+           
+            
+            gl.linkProgram(programObject);
+
+            if(!gl.getProgramParameter(programObject,gl.LINK_STATUS))
+            {
+                alert("error:programObject");
+                return;
+            }
+            
+
+            
+            gl.useProgram(programObject);
+            
+             //用于三角形
+            gl.bindAttribLocation(programObject,v3PositionIndex,"v3Position");
+            //绑定纹理位置
+            uniformTexture=gl.getUniformLocation(programObject,"texture");
+            attrUV=gl.getAttribLocation(programObject, "inUV");
+             //激活纹理
+             gl.activeTexture(gl.TEXTURE0);
+            //绑定纹理
+            gl.bindTexture(gl.TEXTURE_2D, textureHandle);
+            //  设置第几阶段
+            gl.uniform1i(uniformTexture,0);
+            var jsArrayData=
+            [      
+                //  x,    y,      z     u    v
+                  0.0,    0.0,  0.0,  0.0, 0.0,
+                400.0,    0.0,  0.0,  1.0, 0.0,
+                400.0,  400.0,  0.0,  1.0, 1.0,
+
+                  0.0,    0.0,  0.0,  0.0, 0.0,
+                400.0,  400.0,  0.0,  1.0, 1.0,
+                  0.0,  400.0,  0.0,  0.0, 1.0
+            ];
+
+            // uniformColor=gl.getUniformLocation(programObject, "color");
+            //  gl.uniform4f(uniformColor,1.0,0.5,0.5,1.0);
+            uniformAnim=gl.getUniformLocation(programObject,"anim");
+             uniformProj=gl.getUniformLocation(programObject,"proj");
+            
+            triangleBuffer=gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, triangleBuffer);
+            //绑定顶点缓存数据
+            //可选项：DYNAMIC_DRAW(数据需要经常变化的),STATIC_DRAW(数据基本不变的),STREAM_DRAW(数据偶尔会变)
+            //写法1
+            gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(jsArrayData),gl.STATIC_DRAW);
+           
+           initTexture("./hp.jpg");
+        }
+
+         function webglStart(){
+            init();
+            //进入游戏循环
+            tick();
+         }
+
+         function renderSecen(){
+             //指定背景颜色
+             gl.clearColor(0.0,0.0,0.0,1.0);
+            // //gl.clearColor(108/255.0,132/255.0,165/255.0,1.0);
+            //绘制背景颜色,需要深度缓存
+            gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+            //启用深度纹理
+            gl.enable(gl.DEPTH_TEST);
+           //指定绘制所使用的顶点数据从该缓冲区中获取
+            gl.bindBuffer(gl.ARRAY_BUFFER,triangleBuffer)
+        
+            //活动纹理设置
+            gl.activeTexture(gl.TEXTURE0);
+            //绑定纹理
+            gl.bindTexture(gl.TEXTURE_2D, textureHandle);
+
+            gl.uniform1i(uniformTexture,0);
+            animStep+=1;
+            gl.uniform1f(uniformAnim,animStep);
+            gl.uniformMatrix4fv(uniformProj,false,projectMat);   
+                
+            gl.enableVertexAttribArray(v3PositionIndex);
+
+            gl.enableVertexAttribArray(attrUV);       
+                    //下面函数的第四个参数一般为false，有时候为true
+                    //如果修改了数据，需要计算第五个参数，它是偏移的字节数
+                
+            gl.vertexAttribPointer(v3PositionIndex, 3, gl.FLOAT, false, 4*5, 0)
+            gl.vertexAttribPointer(attrUV, 2, gl.FLOAT, false, 4*5, 12)
+            // gl.useProgram(programObject);
+             
+              gl.drawArrays(gl.TRIANGLES,0,6);
+            //    gl.useProgram(0);
+         }
+
+         function tick(){
+            requestAnimFrame(tick);
+             renderSecen();
+         }
+         window.requestAnimFrame=(function(){
+           return window.requestAnimationFrame||
+                window.wekitResquestAnimationFrame||
+                window.mozResquestAnimationFrame||
+                window.oResquestAnimationFrame||
+                window.msResquestAnimationFrame||
+                function(callback,element){
+                       window.setTimeout(callback,1000/60);
+                  };
+        })();
+    </script>
+</head>
+<body onload="webglStart();">
+    <canvas id="myCanvas" style="border: 1px solid red;" width="500" height="500"></canvas>
+  
+</body>
+</html>
